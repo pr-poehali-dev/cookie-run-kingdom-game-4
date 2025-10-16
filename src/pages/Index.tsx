@@ -27,6 +27,13 @@ interface GameObject {
   collected: boolean;
 }
 
+interface Enemy {
+  x: number;
+  y: number;
+  direction: number;
+  emoji: string;
+}
+
 const Index = () => {
   const [selectedCharacter, setSelectedCharacter] = useState<Character>(characters[0]);
   const [gameStarted, setGameStarted] = useState(false);
@@ -36,7 +43,11 @@ const Index = () => {
   const [velocityY, setVelocityY] = useState(0);
   const [isJumping, setIsJumping] = useState(false);
   const [gameObjects, setGameObjects] = useState<GameObject[]>([]);
+  const [enemies, setEnemies] = useState<Enemy[]>([]);
   const [keys, setKeys] = useState<Set<string>>(new Set());
+  const [lives, setLives] = useState(3);
+  const [isInvulnerable, setIsInvulnerable] = useState(false);
+  const [gameOver, setGameOver] = useState(false);
 
   const GRAVITY = 0.5;
   const JUMP_FORCE = -12;
@@ -54,6 +65,18 @@ const Index = () => {
       });
     }
     setGameObjects(initialObjects);
+
+    const initialEnemies: Enemy[] = [];
+    const enemyEmojis = ['👻', '🦇', '🎃', '💀'];
+    for (let i = 0; i < 8; i++) {
+      initialEnemies.push({
+        x: 300 + i * 200,
+        y: GROUND_Y,
+        direction: Math.random() > 0.5 ? 1 : -1,
+        emoji: enemyEmojis[Math.floor(Math.random() * enemyEmojis.length)]
+      });
+    }
+    setEnemies(initialEnemies);
   }, [gameStarted]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -86,7 +109,7 @@ const Index = () => {
   }, [gameStarted, handleKeyDown, handleKeyUp]);
 
   useEffect(() => {
-    if (!gameStarted) return;
+    if (!gameStarted || gameOver) return;
 
     const gameLoop = setInterval(() => {
       setPlayerY(prevY => {
@@ -126,18 +149,53 @@ const Index = () => {
           return obj;
         })
       );
+
+      setEnemies(prevEnemies =>
+        prevEnemies.map(enemy => {
+          let newX = enemy.x + enemy.direction * 2;
+          let newDirection = enemy.direction;
+          
+          if (newX < 50 || newX > 750) {
+            newDirection = -enemy.direction;
+            newX = enemy.x + newDirection * 2;
+          }
+          
+          if (!isInvulnerable) {
+            const distance = Math.sqrt(
+              Math.pow(enemy.x - playerX, 2) + Math.pow(enemy.y - playerY, 2)
+            );
+            
+            if (distance < 45) {
+              setLives(prev => {
+                const newLives = prev - 1;
+                if (newLives <= 0) {
+                  setGameOver(true);
+                }
+                return newLives;
+              });
+              setIsInvulnerable(true);
+              setTimeout(() => setIsInvulnerable(false), 2000);
+            }
+          }
+          
+          return { ...enemy, x: newX, direction: newDirection };
+        })
+      );
     }, 1000 / 60);
 
     return () => clearInterval(gameLoop);
-  }, [gameStarted, velocityY, playerY, keys, playerX]);
+  }, [gameStarted, gameOver, velocityY, playerY, keys, playerX, isInvulnerable]);
 
   const startGame = () => {
     setGameStarted(true);
+    setGameOver(false);
     setScore(0);
+    setLives(3);
     setPlayerX(100);
     setPlayerY(GROUND_Y);
     setVelocityY(0);
     setIsJumping(false);
+    setIsInvulnerable(false);
   };
 
   return (
@@ -180,9 +238,15 @@ const Index = () => {
                     <span className="text-3xl">{selectedCharacter.emoji}</span>
                     <span className="text-sm">{selectedCharacter.name}</span>
                   </span>
-                  <span className="flex items-center gap-2">
-                    <Icon name="Trophy" size={20} />
-                    <span className="text-xl">{score}</span>
+                  <span className="flex items-center gap-4">
+                    <span className="flex items-center gap-2">
+                      <Icon name="Heart" size={20} className="text-red-300" />
+                      <span className="text-xl">{lives}</span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <Icon name="Trophy" size={20} />
+                      <span className="text-xl">{score}</span>
+                    </span>
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -197,7 +261,7 @@ const Index = () => {
                   {gameStarted && (
                     <>
                       <div
-                        className="absolute text-5xl transition-all duration-75"
+                        className={`absolute text-5xl transition-all duration-75 ${isInvulnerable ? 'animate-pulse opacity-50' : ''}`}
                         style={{
                           left: `${playerX}px`,
                           top: `${playerY}px`,
@@ -222,10 +286,24 @@ const Index = () => {
                           </div>
                         )
                       ))}
+
+                      {enemies.map((enemy, index) => (
+                        <div
+                          key={`enemy-${index}`}
+                          className="absolute text-4xl"
+                          style={{
+                            left: `${enemy.x}px`,
+                            top: `${enemy.y}px`,
+                            transform: `translate(-50%, -50%) scaleX(${enemy.direction})`
+                          }}
+                        >
+                          {enemy.emoji}
+                        </div>
+                      ))}
                     </>
                   )}
 
-                  {!gameStarted && (
+                  {!gameStarted && !gameOver && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30">
                       <Button
                         onClick={startGame}
@@ -234,6 +312,22 @@ const Index = () => {
                         <Icon name="Play" className="mr-2" />
                         START
                       </Button>
+                    </div>
+                  )}
+
+                  {gameOver && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+                      <div className="text-center">
+                        <div className="font-pixel text-6xl text-red-500 mb-4 animate-pulse">GAME OVER</div>
+                        <div className="font-pixel text-2xl text-white mb-6">SCORE: {score}</div>
+                        <Button
+                          onClick={startGame}
+                          className="font-pixel text-white text-xl px-8 py-6 bg-gradient-to-r from-[#FF6B9D] to-[#FFD93D] border-4 border-[#8B4513] hover:scale-105 transition-transform shadow-lg"
+                        >
+                          <Icon name="RotateCcw" className="mr-2" />
+                          RESTART
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
